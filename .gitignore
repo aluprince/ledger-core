@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 .env
 bin/
 *.exe
@@ -5,3 +6,7 @@ bin/
 *.out
 vendor/
 .DS_Store
+=======
+/venv
+.env
+>>>>>>> 6d518873af761f548837c41a99350867d9b493b4

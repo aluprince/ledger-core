@@ -1,6 +1,7 @@
 package main
 
 import (
+<<<<<<< HEAD
 	"context"
 	"database/sql"
 	"fmt"
@@ -90,3 +91,12 @@ func openDB(dsn string) (*sql.DB, error) {
 	}
 	return db, nil
 }
+=======
+	"fmt"
+)
+
+func main() {
+	fmt.Println("Starting Ledger API...")
+}
+
+>>>>>>> 6d518873af761f548837c41a99350867d9b493b4

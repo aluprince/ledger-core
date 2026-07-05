@@ -32,12 +32,12 @@ import (
 func DB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	// dsn := os.Getenv("TEST_DATABASE_URL")
-	// if dsn == "" {
-	// 	dsn = "postgres://postgres:postgres@localhost:5432/ledgercore_test?sslmode=disable"
-	// }
-	//dsn := "postgres://postgres:postgres@localhost:5432/ledgercore_test?sslmode=disable"
-	dsn := "postgres://postgres:postgres@127.0.0.1:5432/ledgercore?sslmode=disable"
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+	 	dsn = "postgres://postgres:postgres@localhost:5432/ledgercore_test?sslmode=disable"
+	 }
+
+	// dsn := "postgres://postgres:postgres@127.0.0.1:5432/ledgercore?sslmode=disable"
 
 	var db *sql.DB
 	var err error

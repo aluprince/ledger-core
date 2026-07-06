@@ -82,14 +82,12 @@ func TestInitiate_RejectsInsufficientFunds(t *testing.T) {
 	db := testhelper.DB(t)
 	testhelper.TruncateAll(t, db)
 
-	// Create accounts with zero balance.
 	srcID := testhelper.MustCreateAccount(t, db, "acc_broke_001", "Broke Account", "asset")
 	dstID := testhelper.MustCreateAccount(t, db, "acc_dst_010", "Destination", "asset")
 
 	l := ledger.NewService(db)
 	svc := transfer.NewService(db, l)
 
-	// Try to transfer 500 NGN from an account with 0 balance.
 	_, err := svc.Initiate(context.Background(), transfer.InitiateInput{
 		FromAccountID: srcID,
 		ToAccountID:   dstID,
@@ -111,7 +109,6 @@ func TestInitiate_SuccessfulTransfer(t *testing.T) {
 
 	l := ledger.NewService(db)
 
-	// Fund the source account with 10,000 NGN first.
 	_, err := l.Post(context.Background(), ledger.PostInput{
 		Reference:       "fund_src_001",
 		DebitAccountID:  inflowID,
@@ -125,7 +122,6 @@ func TestInitiate_SuccessfulTransfer(t *testing.T) {
 
 	svc := transfer.NewService(db, l)
 
-	// Transfer 3,000 NGN from src to dst.
 	trf, err := svc.Initiate(context.Background(), transfer.InitiateInput{
 		FromAccountID: srcID,
 		ToAccountID:   dstID,
@@ -137,7 +133,6 @@ func TestInitiate_SuccessfulTransfer(t *testing.T) {
 		t.Fatalf("Initiate() failed: %v", err)
 	}
 
-	// Assert the transfer record is correct.
 	if trf.FromAccountID != srcID {
 		t.Errorf("from_account = %s, want %s", trf.FromAccountID, srcID)
 	}
@@ -148,7 +143,6 @@ func TestInitiate_SuccessfulTransfer(t *testing.T) {
 		t.Errorf("amount = %d kobo, want %d kobo", trf.Amount, money.FromNaira(3000).Kobo())
 	}
 
-	// Assert source balance decreased: 10,000 - 3,000 = 7,000 NGN
 	srcBalance, err := l.GetBalance(context.Background(), srcID, "NGN")
 	if err != nil {
 		t.Fatalf("GetBalance(src) failed: %v", err)
@@ -157,7 +151,6 @@ func TestInitiate_SuccessfulTransfer(t *testing.T) {
 		t.Errorf("src balance = %s, want NGN 7,000.00", srcBalance.String())
 	}
 
-	// Assert destination balance increased: 0 + 3,000 = 3,000 NGN
 	dstBalance, err := l.GetBalance(context.Background(), dstID, "NGN")
 	if err != nil {
 		t.Fatalf("GetBalance(dst) failed: %v", err)
@@ -168,9 +161,6 @@ func TestInitiate_SuccessfulTransfer(t *testing.T) {
 }
 
 func TestInitiate_MoneyIsConserved(t *testing.T) {
-	// The most important financial invariant:
-	// total money in the system must not change after a transfer.
-	// src_balance + dst_balance before == src_balance + dst_balance after.
 	db := testhelper.DB(t)
 	testhelper.TruncateAll(t, db)
 
@@ -180,20 +170,30 @@ func TestInitiate_MoneyIsConserved(t *testing.T) {
 
 	l := ledger.NewService(db)
 
-	// Fund source with 8,000 NGN.
-	l.Post(context.Background(), ledger.PostInput{
+	if _, err := l.Post(context.Background(), ledger.PostInput{
 		Reference: "fund_conserve", DebitAccountID: inflowID, CreditAccountID: srcID,
 		Amount: money.FromNaira(8000), Currency: "NGN",
-	})
+	}); err != nil {
+		t.Fatalf("Post() failed: %v", err)
+	}
 
 	svc := transfer.NewService(db, l)
-	svc.Initiate(context.Background(), transfer.InitiateInput{
+
+	if _, err := svc.Initiate(context.Background(), transfer.InitiateInput{
 		FromAccountID: srcID, ToAccountID: dstID,
 		Amount: money.FromNaira(5000), Currency: "NGN",
-	})
+	}); err != nil {
+		t.Fatalf("Initiate() failed: %v", err)
+	}
 
-	srcBal, _ := l.GetBalance(context.Background(), srcID, "NGN")
-	dstBal, _ := l.GetBalance(context.Background(), dstID, "NGN")
+	srcBal, err := l.GetBalance(context.Background(), srcID, "NGN")
+	if err != nil {
+		t.Fatalf("GetBalance(src) failed: %v", err)
+	}
+	dstBal, err := l.GetBalance(context.Background(), dstID, "NGN")
+	if err != nil {
+		t.Fatalf("GetBalance(dst) failed: %v", err)
+	}
 
 	total := srcBal.Add(dstBal)
 	expected := money.FromNaira(8000)

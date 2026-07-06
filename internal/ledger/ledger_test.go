@@ -9,9 +9,6 @@ import (
 	"github.com/aluprince/ledger-core/pkg/money"
 )
 
-// ── Unit Tests ────────────────────────────────────────────────────────────────
-// These test pure input validation — no database required.
-
 func TestPostInput_Validation(t *testing.T) {
 	t.Run("zero amount is rejected", func(t *testing.T) {
 		db := testhelper.DB(t)
@@ -22,7 +19,7 @@ func TestPostInput_Validation(t *testing.T) {
 			Reference:       "ref_001",
 			DebitAccountID:  "acc_a",
 			CreditAccountID: "acc_b",
-			Amount:          money.Amount(0), // zero — must be rejected
+			Amount:          money.Amount(0),
 			Currency:        "NGN",
 		})
 		if err == nil {
@@ -55,7 +52,7 @@ func TestPostInput_Validation(t *testing.T) {
 		_, err := svc.Post(context.Background(), ledger.PostInput{
 			Reference:       "ref_003",
 			DebitAccountID:  "acc_same",
-			CreditAccountID: "acc_same", // same — must be rejected
+			CreditAccountID: "acc_same",
 			Amount:          money.Amount(10000),
 			Currency:        "NGN",
 		})
@@ -65,15 +62,10 @@ func TestPostInput_Validation(t *testing.T) {
 	})
 }
 
-// ── Integration Tests ─────────────────────────────────────────────────────────
-// These hit a real PostgreSQL database.
-// They test that the double-entry invariants actually hold in the DB.
-
 func TestPost_CreatesExactlyTwoLedgerEntries(t *testing.T) {
 	db := testhelper.DB(t)
 	testhelper.TruncateAll(t, db)
 
-	// Create two real accounts.
 	srcID := testhelper.MustCreateAccount(t, db, "acc_src_001", "Source Account", "asset")
 	dstID := testhelper.MustCreateAccount(t, db, "acc_dst_001", "Destination Account", "asset")
 
@@ -84,16 +76,17 @@ func TestPost_CreatesExactlyTwoLedgerEntries(t *testing.T) {
 		Description:     "Test posting",
 		DebitAccountID:  srcID,
 		CreditAccountID: dstID,
-		Amount:          money.FromNaira(500), // 50,000 kobo
+		Amount:          money.FromNaira(500),
 		Currency:        "NGN",
 	})
 	if err != nil {
 		t.Fatalf("Post() failed: %v", err)
 	}
 
-	// Assert exactly 2 entries were created in the DB — not 1, not 3. Always 2.
 	var count int
-	db.QueryRow(`SELECT COUNT(*) FROM ledger_entries WHERE transaction_id = $1`, txn.ID).Scan(&count)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ledger_entries WHERE transaction_id = $1`, txn.ID).Scan(&count); err != nil {
+		t.Fatalf("scan count: %v", err)
+	}
 	if count != 2 {
 		t.Fatalf("expected 2 ledger entries, got %d — double-entry invariant violated", count)
 	}
@@ -107,7 +100,7 @@ func TestPost_DebitAndCreditAreSymmetric(t *testing.T) {
 	dstID := testhelper.MustCreateAccount(t, db, "acc_dst_002", "Destination", "asset")
 
 	svc := ledger.NewService(db)
-	amount := money.FromNaira(1000) // 100,000 kobo
+	amount := money.FromNaira(1000)
 
 	txn, err := svc.Post(context.Background(), ledger.PostInput{
 		Reference:       "txn_ref_002",
@@ -120,19 +113,25 @@ func TestPost_DebitAndCreditAreSymmetric(t *testing.T) {
 		t.Fatalf("Post() failed: %v", err)
 	}
 
-	// Assert debit entry amount == credit entry amount.
-	// The books must balance — debits always equal credits.
-	rows, _ := db.Query(`
+	rows, err := db.Query(`
 		SELECT direction, amount FROM ledger_entries
 		WHERE transaction_id = $1 ORDER BY direction ASC`, txn.ID)
+	if err != nil {
+		t.Fatalf("query entries: %v", err)
+	}
 	defer rows.Close()
 
 	entries := map[string]int64{}
 	for rows.Next() {
 		var dir string
 		var amt int64
-		rows.Scan(&dir, &amt)
+		if err := rows.Scan(&dir, &amt); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
 		entries[dir] = amt
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows error: %v", err)
 	}
 
 	if entries["DEBIT"] != amount.Kobo() {
@@ -166,10 +165,13 @@ func TestPost_CorrectAccountsAreDebited(t *testing.T) {
 		t.Fatalf("Post() failed: %v", err)
 	}
 
-	// Assert the DEBIT entry is on srcID, CREDIT on dstID.
 	var debitAccount, creditAccount string
-	db.QueryRow(`SELECT account_id FROM ledger_entries WHERE transaction_id = $1 AND direction = 'DEBIT'`, txn.ID).Scan(&debitAccount)
-	db.QueryRow(`SELECT account_id FROM ledger_entries WHERE transaction_id = $1 AND direction = 'CREDIT'`, txn.ID).Scan(&creditAccount)
+	if err := db.QueryRow(`SELECT account_id FROM ledger_entries WHERE transaction_id = $1 AND direction = 'DEBIT'`, txn.ID).Scan(&debitAccount); err != nil {
+		t.Fatalf("scan debit account: %v", err)
+	}
+	if err := db.QueryRow(`SELECT account_id FROM ledger_entries WHERE transaction_id = $1 AND direction = 'CREDIT'`, txn.ID).Scan(&creditAccount); err != nil {
+		t.Fatalf("scan credit account: %v", err)
+	}
 
 	if debitAccount != srcID {
 		t.Fatalf("DEBIT on wrong account: got %s, want %s", debitAccount, srcID)
@@ -183,14 +185,11 @@ func TestGetBalance_ComputedFromLedger(t *testing.T) {
 	db := testhelper.DB(t)
 	testhelper.TruncateAll(t, db)
 
-	// This test proves balance is computed from ledger entries — not a stored field.
-	// We post directly to the ledger and assert GetBalance reflects it.
 	walletID := testhelper.MustCreateAccount(t, db, "acc_wallet_001", "User Wallet", "asset")
 	inflowID := testhelper.MustCreateAccount(t, db, "acc_inflow_001", "System Inflow", "liability")
 
 	svc := ledger.NewService(db)
 
-	// Credit the wallet with 5,000 NGN (500,000 kobo).
 	_, err := svc.Post(context.Background(), ledger.PostInput{
 		Reference:       "txn_inflow_001",
 		DebitAccountID:  inflowID,
@@ -225,25 +224,27 @@ func TestGetBalance_MultipleTransactions(t *testing.T) {
 
 	svc := ledger.NewService(db)
 
-	// Credit 10,000 NGN
-	svc.Post(context.Background(), ledger.PostInput{
+	if _, err := svc.Post(context.Background(), ledger.PostInput{
 		Reference: "txn_credit_001", DebitAccountID: inflowID, CreditAccountID: walletID,
 		Amount: money.FromNaira(10000), Currency: "NGN",
-	})
+	}); err != nil {
+		t.Fatalf("Post() credit failed: %v", err)
+	}
 
-	// Debit 3,000 NGN
-	svc.Post(context.Background(), ledger.PostInput{
+	if _, err := svc.Post(context.Background(), ledger.PostInput{
 		Reference: "txn_debit_001", DebitAccountID: walletID, CreditAccountID: outflowID,
 		Amount: money.FromNaira(3000), Currency: "NGN",
-	})
+	}); err != nil {
+		t.Fatalf("Post() debit 1 failed: %v", err)
+	}
 
-	// Debit another 2,000 NGN
-	svc.Post(context.Background(), ledger.PostInput{
+	if _, err := svc.Post(context.Background(), ledger.PostInput{
 		Reference: "txn_debit_002", DebitAccountID: walletID, CreditAccountID: outflowID,
 		Amount: money.FromNaira(2000), Currency: "NGN",
-	})
+	}); err != nil {
+		t.Fatalf("Post() debit 2 failed: %v", err)
+	}
 
-	// Expected: 10,000 - 3,000 - 2,000 = 5,000 NGN
 	balance, err := svc.GetBalance(context.Background(), walletID, "NGN")
 	if err != nil {
 		t.Fatalf("GetBalance() failed: %v", err)
@@ -261,8 +262,6 @@ func TestPost_TransactionIsAtomicOnFailure(t *testing.T) {
 
 	svc := ledger.NewService(db)
 
-	// Post to non-existent accounts — the DB foreign key constraint will reject it.
-	// Both entries must fail — we must not end up with 1 entry committed.
 	_, err := svc.Post(context.Background(), ledger.PostInput{
 		Reference:       "txn_atomic_001",
 		DebitAccountID:  "acc_does_not_exist",
@@ -274,9 +273,10 @@ func TestPost_TransactionIsAtomicOnFailure(t *testing.T) {
 		t.Fatal("expected error posting to non-existent accounts, got nil")
 	}
 
-	// Assert zero entries were written — atomicity holds.
 	var count int
-	db.QueryRow(`SELECT COUNT(*) FROM ledger_entries`).Scan(&count)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ledger_entries`).Scan(&count); err != nil {
+		t.Fatalf("scan count: %v", err)
+	}
 	if count != 0 {
 		t.Fatalf("expected 0 ledger entries after failed post, got %d — atomicity violated", count)
 	}

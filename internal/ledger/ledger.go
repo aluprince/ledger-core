@@ -92,7 +92,8 @@ func (s *Service) Post(ctx context.Context, input PostInput) (*Transaction, erro
 	if err != nil {
 		return nil, fmt.Errorf("ledger: begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
+	//defer tx.Rollback()
 
 	// 1. Insert transaction record.
 	var idempKey sql.NullString

@@ -11,10 +11,7 @@ import (
 
 func TestPostInput_Validation(t *testing.T) {
 	t.Run("zero amount is rejected", func(t *testing.T) {
-		db := testhelper.DB(t)
-		testhelper.TruncateAll(t, db)
-		svc := ledger.NewService(db)
-
+		svc := ledger.NewService(testhelper.DB(t))
 		_, err := svc.Post(context.Background(), ledger.PostInput{
 			Reference:       "ref_001",
 			DebitAccountID:  "acc_a",
@@ -28,10 +25,7 @@ func TestPostInput_Validation(t *testing.T) {
 	})
 
 	t.Run("negative amount is rejected", func(t *testing.T) {
-		db := testhelper.DB(t)
-		testhelper.TruncateAll(t, db)
-		svc := ledger.NewService(db)
-
+		svc := ledger.NewService(testhelper.DB(t))
 		_, err := svc.Post(context.Background(), ledger.PostInput{
 			Reference:       "ref_002",
 			DebitAccountID:  "acc_a",
@@ -45,10 +39,7 @@ func TestPostInput_Validation(t *testing.T) {
 	})
 
 	t.Run("same debit and credit account is rejected", func(t *testing.T) {
-		db := testhelper.DB(t)
-		testhelper.TruncateAll(t, db)
-		svc := ledger.NewService(db)
-
+		svc := ledger.NewService(testhelper.DB(t))
 		_, err := svc.Post(context.Background(), ledger.PostInput{
 			Reference:       "ref_003",
 			DebitAccountID:  "acc_same",
@@ -66,14 +57,12 @@ func TestPost_CreatesExactlyTwoLedgerEntries(t *testing.T) {
 	db := testhelper.DB(t)
 	testhelper.TruncateAll(t, db)
 
-	srcID := testhelper.MustCreateAccount(t, db, "acc_src_001", "Source Account", "asset")
-	dstID := testhelper.MustCreateAccount(t, db, "acc_dst_001", "Destination Account", "asset")
+	srcID := testhelper.MustCreateAccount(t, db, "", "Source Account", "asset")
+	dstID := testhelper.MustCreateAccount(t, db, "", "Destination Account", "asset")
 
 	svc := ledger.NewService(db)
-
 	txn, err := svc.Post(context.Background(), ledger.PostInput{
-		Reference:       "txn_ref_001",
-		Description:     "Test posting",
+		Reference:       "txn_two_entries",
 		DebitAccountID:  srcID,
 		CreditAccountID: dstID,
 		Amount:          money.FromNaira(500),
@@ -96,14 +85,14 @@ func TestPost_DebitAndCreditAreSymmetric(t *testing.T) {
 	db := testhelper.DB(t)
 	testhelper.TruncateAll(t, db)
 
-	srcID := testhelper.MustCreateAccount(t, db, "acc_src_002", "Source", "asset")
-	dstID := testhelper.MustCreateAccount(t, db, "acc_dst_002", "Destination", "asset")
+	srcID := testhelper.MustCreateAccount(t, db, "", "Source", "asset")
+	dstID := testhelper.MustCreateAccount(t, db, "", "Destination", "asset")
 
 	svc := ledger.NewService(db)
 	amount := money.FromNaira(1000)
 
 	txn, err := svc.Post(context.Background(), ledger.PostInput{
-		Reference:       "txn_ref_002",
+		Reference:       "txn_symmetric",
 		DebitAccountID:  srcID,
 		CreditAccountID: dstID,
 		Amount:          amount,
@@ -149,13 +138,12 @@ func TestPost_CorrectAccountsAreDebited(t *testing.T) {
 	db := testhelper.DB(t)
 	testhelper.TruncateAll(t, db)
 
-	srcID := testhelper.MustCreateAccount(t, db, "acc_src_003", "Source", "asset")
-	dstID := testhelper.MustCreateAccount(t, db, "acc_dst_003", "Destination", "asset")
+	srcID := testhelper.MustCreateAccount(t, db, "", "Source", "asset")
+	dstID := testhelper.MustCreateAccount(t, db, "", "Destination", "asset")
 
 	svc := ledger.NewService(db)
-
 	txn, err := svc.Post(context.Background(), ledger.PostInput{
-		Reference:       "txn_ref_003",
+		Reference:       "txn_correct_accounts",
 		DebitAccountID:  srcID,
 		CreditAccountID: dstID,
 		Amount:          money.FromNaira(200),
@@ -185,13 +173,12 @@ func TestGetBalance_ComputedFromLedger(t *testing.T) {
 	db := testhelper.DB(t)
 	testhelper.TruncateAll(t, db)
 
-	walletID := testhelper.MustCreateAccount(t, db, "acc_wallet_001", "User Wallet", "asset")
-	inflowID := testhelper.MustCreateAccount(t, db, "acc_inflow_001", "System Inflow", "liability")
+	walletID := testhelper.MustCreateAccount(t, db, "", "User Wallet", "asset")
+	inflowID := testhelper.MustCreateAccount(t, db, "", "System Inflow", "liability")
 
 	svc := ledger.NewService(db)
-
 	_, err := svc.Post(context.Background(), ledger.PostInput{
-		Reference:       "txn_inflow_001",
+		Reference:       "txn_balance_check",
 		DebitAccountID:  inflowID,
 		CreditAccountID: walletID,
 		Amount:          money.FromNaira(5000),
@@ -208,9 +195,7 @@ func TestGetBalance_ComputedFromLedger(t *testing.T) {
 
 	expected := money.FromNaira(5000)
 	if balance != expected {
-		t.Fatalf("balance = %d kobo (%s), want %d kobo (%s)",
-			balance.Kobo(), balance.String(),
-			expected.Kobo(), expected.String())
+		t.Fatalf("balance = %s, want %s", balance.String(), expected.String())
 	}
 }
 
@@ -218,28 +203,26 @@ func TestGetBalance_MultipleTransactions(t *testing.T) {
 	db := testhelper.DB(t)
 	testhelper.TruncateAll(t, db)
 
-	walletID := testhelper.MustCreateAccount(t, db, "acc_wallet_002", "User Wallet", "asset")
-	inflowID := testhelper.MustCreateAccount(t, db, "acc_inflow_002", "System Inflow", "liability")
-	outflowID := testhelper.MustCreateAccount(t, db, "acc_outflow_002", "System Outflow", "asset")
+	walletID := testhelper.MustCreateAccount(t, db, "", "User Wallet", "asset")
+	inflowID := testhelper.MustCreateAccount(t, db, "", "System Inflow", "liability")
+	outflowID := testhelper.MustCreateAccount(t, db, "", "System Outflow", "asset")
 
 	svc := ledger.NewService(db)
 
 	if _, err := svc.Post(context.Background(), ledger.PostInput{
-		Reference: "txn_credit_001", DebitAccountID: inflowID, CreditAccountID: walletID,
+		Reference: "txn_multi_credit", DebitAccountID: inflowID, CreditAccountID: walletID,
 		Amount: money.FromNaira(10000), Currency: "NGN",
 	}); err != nil {
 		t.Fatalf("Post() credit failed: %v", err)
 	}
-
 	if _, err := svc.Post(context.Background(), ledger.PostInput{
-		Reference: "txn_debit_001", DebitAccountID: walletID, CreditAccountID: outflowID,
+		Reference: "txn_multi_debit1", DebitAccountID: walletID, CreditAccountID: outflowID,
 		Amount: money.FromNaira(3000), Currency: "NGN",
 	}); err != nil {
 		t.Fatalf("Post() debit 1 failed: %v", err)
 	}
-
 	if _, err := svc.Post(context.Background(), ledger.PostInput{
-		Reference: "txn_debit_002", DebitAccountID: walletID, CreditAccountID: outflowID,
+		Reference: "txn_multi_debit2", DebitAccountID: walletID, CreditAccountID: outflowID,
 		Amount: money.FromNaira(2000), Currency: "NGN",
 	}); err != nil {
 		t.Fatalf("Post() debit 2 failed: %v", err)
@@ -261,9 +244,8 @@ func TestPost_TransactionIsAtomicOnFailure(t *testing.T) {
 	testhelper.TruncateAll(t, db)
 
 	svc := ledger.NewService(db)
-
 	_, err := svc.Post(context.Background(), ledger.PostInput{
-		Reference:       "txn_atomic_001",
+		Reference:       "txn_atomic_fail",
 		DebitAccountID:  "acc_does_not_exist",
 		CreditAccountID: "acc_also_does_not_exist",
 		Amount:          money.FromNaira(100),

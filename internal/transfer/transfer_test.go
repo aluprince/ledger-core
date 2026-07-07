@@ -10,18 +10,11 @@ import (
 	"github.com/aluprince/ledger-core/pkg/money"
 )
 
-func setup(t *testing.T) (*transfer.Service, func()) {
-	t.Helper()
+func TestInitiate_RejectsSameAccount(t *testing.T) {
 	db := testhelper.DB(t)
 	testhelper.TruncateAll(t, db)
 	l := ledger.NewService(db)
 	svc := transfer.NewService(db, l)
-	return svc, func() { testhelper.TruncateAll(t, db) }
-}
-
-func TestInitiate_RejectsSameAccount(t *testing.T) {
-	svc, cleanup := setup(t)
-	defer cleanup()
 
 	_, err := svc.Initiate(context.Background(), transfer.InitiateInput{
 		FromAccountID: "acc_same",
@@ -35,8 +28,10 @@ func TestInitiate_RejectsSameAccount(t *testing.T) {
 }
 
 func TestInitiate_RejectsZeroAmount(t *testing.T) {
-	svc, cleanup := setup(t)
-	defer cleanup()
+	db := testhelper.DB(t)
+	testhelper.TruncateAll(t, db)
+	l := ledger.NewService(db)
+	svc := transfer.NewService(db, l)
 
 	_, err := svc.Initiate(context.Background(), transfer.InitiateInput{
 		FromAccountID: "acc_a",
@@ -50,8 +45,10 @@ func TestInitiate_RejectsZeroAmount(t *testing.T) {
 }
 
 func TestInitiate_RejectsNegativeAmount(t *testing.T) {
-	svc, cleanup := setup(t)
-	defer cleanup()
+	db := testhelper.DB(t)
+	testhelper.TruncateAll(t, db)
+	l := ledger.NewService(db)
+	svc := transfer.NewService(db, l)
 
 	_, err := svc.Initiate(context.Background(), transfer.InitiateInput{
 		FromAccountID: "acc_a",
@@ -65,8 +62,10 @@ func TestInitiate_RejectsNegativeAmount(t *testing.T) {
 }
 
 func TestInitiate_RejectsMissingFromAccount(t *testing.T) {
-	svc, cleanup := setup(t)
-	defer cleanup()
+	db := testhelper.DB(t)
+	testhelper.TruncateAll(t, db)
+	l := ledger.NewService(db)
+	svc := transfer.NewService(db, l)
 
 	_, err := svc.Initiate(context.Background(), transfer.InitiateInput{
 		FromAccountID: "",
@@ -82,8 +81,8 @@ func TestInitiate_RejectsInsufficientFunds(t *testing.T) {
 	db := testhelper.DB(t)
 	testhelper.TruncateAll(t, db)
 
-	srcID := testhelper.MustCreateAccount(t, db, "acc_broke_001", "Broke Account", "asset")
-	dstID := testhelper.MustCreateAccount(t, db, "acc_dst_010", "Destination", "asset")
+	srcID := testhelper.MustCreateAccount(t, db, "", "Broke Account", "asset")
+	dstID := testhelper.MustCreateAccount(t, db, "", "Destination", "asset")
 
 	l := ledger.NewService(db)
 	svc := transfer.NewService(db, l)
@@ -103,14 +102,14 @@ func TestInitiate_SuccessfulTransfer(t *testing.T) {
 	db := testhelper.DB(t)
 	testhelper.TruncateAll(t, db)
 
-	srcID := testhelper.MustCreateAccount(t, db, "acc_rich_001", "Rich Account", "asset")
-	dstID := testhelper.MustCreateAccount(t, db, "acc_dst_020", "Destination", "asset")
-	inflowID := testhelper.MustCreateAccount(t, db, "acc_inflow_010", "Inflow", "liability")
+	srcID := testhelper.MustCreateAccount(t, db, "", "Rich Account", "asset")
+	dstID := testhelper.MustCreateAccount(t, db, "", "Destination", "asset")
+	inflowID := testhelper.MustCreateAccount(t, db, "", "Inflow", "liability")
 
 	l := ledger.NewService(db)
 
 	_, err := l.Post(context.Background(), ledger.PostInput{
-		Reference:       "fund_src_001",
+		Reference:       "fund_successful_transfer",
 		DebitAccountID:  inflowID,
 		CreditAccountID: srcID,
 		Amount:          money.FromNaira(10000),
@@ -121,7 +120,6 @@ func TestInitiate_SuccessfulTransfer(t *testing.T) {
 	}
 
 	svc := transfer.NewService(db, l)
-
 	trf, err := svc.Initiate(context.Background(), transfer.InitiateInput{
 		FromAccountID: srcID,
 		ToAccountID:   dstID,
@@ -164,24 +162,28 @@ func TestInitiate_MoneyIsConserved(t *testing.T) {
 	db := testhelper.DB(t)
 	testhelper.TruncateAll(t, db)
 
-	srcID := testhelper.MustCreateAccount(t, db, "acc_conserve_src", "Source", "asset")
-	dstID := testhelper.MustCreateAccount(t, db, "acc_conserve_dst", "Destination", "asset")
-	inflowID := testhelper.MustCreateAccount(t, db, "acc_conserve_inflow", "Inflow", "liability")
+	srcID := testhelper.MustCreateAccount(t, db, "", "Source", "asset")
+	dstID := testhelper.MustCreateAccount(t, db, "", "Destination", "asset")
+	inflowID := testhelper.MustCreateAccount(t, db, "", "Inflow", "liability")
 
 	l := ledger.NewService(db)
 
 	if _, err := l.Post(context.Background(), ledger.PostInput{
-		Reference: "fund_conserve", DebitAccountID: inflowID, CreditAccountID: srcID,
-		Amount: money.FromNaira(8000), Currency: "NGN",
+		Reference:       "fund_conservation",
+		DebitAccountID:  inflowID,
+		CreditAccountID: srcID,
+		Amount:          money.FromNaira(8000),
+		Currency:        "NGN",
 	}); err != nil {
 		t.Fatalf("Post() failed: %v", err)
 	}
 
 	svc := transfer.NewService(db, l)
-
 	if _, err := svc.Initiate(context.Background(), transfer.InitiateInput{
-		FromAccountID: srcID, ToAccountID: dstID,
-		Amount: money.FromNaira(5000), Currency: "NGN",
+		FromAccountID: srcID,
+		ToAccountID:   dstID,
+		Amount:        money.FromNaira(5000),
+		Currency:      "NGN",
 	}); err != nil {
 		t.Fatalf("Initiate() failed: %v", err)
 	}
@@ -197,7 +199,6 @@ func TestInitiate_MoneyIsConserved(t *testing.T) {
 
 	total := srcBal.Add(dstBal)
 	expected := money.FromNaira(8000)
-
 	if total != expected {
 		t.Fatalf("money not conserved: src(%s) + dst(%s) = %s, want %s",
 			srcBal.String(), dstBal.String(), total.String(), expected.String())

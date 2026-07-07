@@ -61,7 +61,7 @@ func Idempotency(db *sql.DB) func(http.Handler) http.Handler {
 					// Same key, different request body — this is a client error.
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusConflict)
-					json.NewEncoder(w).Encode(map[string]string{
+					_ = json.NewEncoder(w).Encode(map[string]string{
 						"code":    "DUPLICATE_IDEMPOTENCY_KEY",
 						"message": "idempotency key reused with different request parameters",
 					})
@@ -71,7 +71,7 @@ func Idempotency(db *sql.DB) func(http.Handler) http.Handler {
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("X-Idempotency-Replayed", "true")
 				w.WriteHeader(cachedStatus)
-				w.Write(cachedResponse)
+				_, _ = w.Write(cachedResponse)
 				return
 			}
 
@@ -82,7 +82,7 @@ func Idempotency(db *sql.DB) func(http.Handler) http.Handler {
 
 			// Cache the response for future replays.
 			responseJSON, _ := json.Marshal(json.RawMessage(rw.body.Bytes()))
-			db.ExecContext(r.Context(),
+			_, _ = db.ExecContext(r.Context(),
 				`INSERT INTO idempotency_keys (key, request_hash, response, status_code)
 				 VALUES ($1, $2, $3, $4) ON CONFLICT (key) DO NOTHING`,
 				key, hash, responseJSON, rw.status,
@@ -132,7 +132,7 @@ func Recoverer(next http.Handler) http.Handler {
 				slog.Error("panic recovered", "error", err)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)
-				json.NewEncoder(w).Encode(map[string]string{
+				_ = json.NewEncoder(w).Encode(map[string]string{
 					"code":    "INTERNAL_ERROR",
 					"message": "an unexpected error occurred",
 				})

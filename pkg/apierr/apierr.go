@@ -34,7 +34,7 @@ func (e *APIError) Error() string {
 func (e *APIError) Write(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(e.Status)
-	json.NewEncoder(w).Encode(e)
+	_ = json.NewEncoder(w).Encode(e)
 }
 
 // Constructors
